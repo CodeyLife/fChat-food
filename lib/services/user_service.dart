@@ -162,7 +162,7 @@ class UserService extends GetxController {
           
           if(userId.isEmpty && ConfigService.isTest){
            // userId = ConfigService.presetUserId;
-           userId = '1112111';
+           userId =  ConfigService.presetUserId;
           }
           // 异步调用_readUserInfo并完成Completer
           if(userId.isNotEmpty) {

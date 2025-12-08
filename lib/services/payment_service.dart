@@ -87,27 +87,6 @@ class PaymentService extends ChangeNotifier {
   }
 
 
-  /// 创建模拟支付
-  Future<PaymentResult> _createMockPayment(PaymentRequest request, Order? order) async {
-    Debug.log('模拟支付成功: ${request.orderNumber}');
-    await Future.delayed(const Duration(seconds: 1)); // 模拟支付处理时间
-    
-    final paymentId = 'mock_payment_${DateTime.now().millisecondsSinceEpoch}';
-    
-    final result = PaymentResult(
-      paymentId: paymentId,
-      status: PaymentStatus.success,
-      message: LocationUtils.translate('Mock payment successful'),
-      data: {
-        'orderId': request.orderId,
-        'amount': request.amount,
-        'orderNumber': request.orderNumber,
-        'order': order?.toJson(), // 将订单信息包含在支付结果中
-      },
-    );
-
-    return result;
-  }
 
   /// 创建App支付
   Future<PaymentResult> _createAppPayment(PaymentRequest request, Order order) async {
@@ -328,44 +307,6 @@ class PaymentService extends ChangeNotifier {
   }
 
 
-  /// 显示模拟支付提示框
-  /// 返回 true 表示用户确认继续，false 表示用户取消
-  Future<bool> _showMockPaymentDialog() async {
-    try {
-      final context = Get.context;
-      if (context == null) {
-        Debug.log('无法获取当前 context，跳过模拟支付提示框显示');
-        return true; // 如果无法显示提示框，默认继续
-      }
-
-      final result = await Get.dialog<bool>(
-        AlertDialog(
-          title: Text(LocationUtils.translate('Mock Payment Mode')),
-          content: Text(LocationUtils.translate('This is a test payment mode. No actual charge will be made. Do you want to continue?')),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Get.back(result: false); // 取消
-              },
-              child: Text(LocationUtils.translate('Cancel')),
-            ),
-            TextButton(
-              onPressed: () {
-                Get.back(result: true); // 确认继续
-              },
-              child: Text(LocationUtils.translate('Continue')),
-            ),
-          ],
-        ),
-        barrierDismissible: false, // 不允许点击外部关闭
-      );
-
-      return result ?? false; // 如果为 null，返回 false（取消）
-    } catch (e) {
-      Debug.log('显示模拟支付提示框失败: $e');
-      return true; // 出错时默认继续
-    }
-  }
 
   /// 显示支付结果弹窗
   void _showPaymentResultDialog(PaymentResult result) {

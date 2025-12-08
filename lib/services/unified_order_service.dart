@@ -148,6 +148,10 @@ class UnifiedOrderService {
                   
                   // 已完成的订单不添加到orders中
                 } else {
+                  //如果订单号为空，则不添加到orders中
+                  if(order.orderNumber.isEmpty){
+                     continue;
+                  }
                   // 只有正在进行的订单才添加到orders中
                   orders.add(order);
                   
