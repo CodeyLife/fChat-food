@@ -1176,7 +1176,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
 
     // 步骤2：环境检查
-    if (!FChatApiSdk.isFchatBrower && PaymentService.useRealPayment) {
+    if (!FChatApiSdk.isFchatBrower) {
       _showFChatPaymentDialog();
       // 非FChat环境也要创建订单并跳转，只是不进行实际支付
     }
@@ -1284,7 +1284,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
     }
 
-    if (FChatApiSdk.isFchatBrower || !PaymentService.useRealPayment) {
+    if (FChatApiSdk.isFchatBrower) {
       // FChat环境：执行实际支付
       final paymentResult = await _processFChatPayment(order, shippingAddress);
       if (paymentResult.isSuccess) {

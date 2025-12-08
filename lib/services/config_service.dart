@@ -1,12 +1,17 @@
 
+import 'package:flutter/foundation.dart';
+
 import '../utils/debug.dart';
 import '../utils/location.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/constants.dart';
-import 'payment_service.dart';
+
+// ignore: depend_on_referenced_packages
+import 'package:web/web.dart' as html;
 
 /// 配置服务类
 class ConfigService {
@@ -24,7 +29,8 @@ class ConfigService {
     }catch(e){
       Debug.logError('配置服务初始化失败: $e');
     }
-    isTest = dotenv.env['IS_TEST'] == 'true';
+    isTest = kDebugMode;
+    
     presetUserId = dotenv.env['PRESET_USER_ID']!;
     presetUserToken = dotenv.env['PRESET_USER_TOKEN']??'';
     
@@ -39,18 +45,21 @@ class ConfigService {
       appVersion = 'Unknown';
     }
     
-    LocationUtils.inChina = dotenv.env['IN_CHINA'] == 'true';
-     var realPayment = dotenv.env['REALE_PAY'];
-     if(realPayment != null && realPayment == 'false'){
-      PaymentService.useRealPayment = false;
-    }else{
-      PaymentService.useRealPayment = true;
+    // Web环境下检测版本号变化并自动刷新
+    if (kIsWeb) {
+      try {
+        await _checkAndHandleVersionUpdate();
+      } catch (e) {
+        Debug.logError('版本号检测失败: $e');
+      }
     }
+    
+    LocationUtils.inChina = dotenv.env['IN_CHINA'] == 'true';
+
     dotenv.clean();
     Debug.log("是否测试环境: $isTest");
     Debug.log("预设用户ID: $presetUserId");
     Debug.log("是否在中国: ${LocationUtils.inChina}");
-    Debug.log("是否使用真实支付: ${PaymentService.useRealPayment}");
   }
 
   /// 获取支付配置
@@ -95,6 +104,46 @@ class ConfigService {
       defaultBorderRadius: AppConstants.defaultBorderRadius,
       defaultElevation: AppConstants.defaultElevation,
     );
+  }
+
+  /// 检查版本号变化并处理（仅Web环境）
+  static Future<void> _checkAndHandleVersionUpdate() async {
+    if (!kIsWeb) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      const versionKey = 'app_version';
+      
+      // 获取保存的版本号
+      final savedVersion = prefs.getString(versionKey);
+      
+      // 获取当前版本号
+      final currentVersion = appVersion;
+      
+      Debug.log('当前版本号: $currentVersion, 保存的版本号: $savedVersion');
+      
+      // 如果版本号不一致（包括首次运行）
+      if (savedVersion != currentVersion) {
+        // 保存新版本号
+        await prefs.setString(versionKey, currentVersion);
+        Debug.log('版本号已更新: $savedVersion -> $currentVersion');
+        
+        // 如果不是首次运行（savedVersion不为null），则刷新页面
+        if (savedVersion != null) {
+          Debug.log('检测到版本号变化，准备刷新页面...');
+          // 延迟一小段时间确保日志输出
+          await Future.delayed(const Duration(milliseconds: 100));
+          // 刷新页面以清除缓存
+          html.window.location.reload();
+        } else {
+          Debug.log('首次运行，已保存版本号: $currentVersion');
+        }
+      } else {
+        Debug.log('版本号未变化: $currentVersion');
+      }
+    } catch (e) {
+      Debug.logError('版本号检测处理失败: $e');
+    }
   }
 }
 

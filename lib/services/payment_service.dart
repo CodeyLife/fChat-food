@@ -32,9 +32,6 @@ enum PaymentSource {
 /// 通过构造函数参数控制使用实际支付还是模拟支付
 class PaymentService extends ChangeNotifier {
 
-  // 支付模式控制：true为实际支付，false为模拟支付
-  static  late final  bool useRealPayment;
-  
 
   /// 创建支付请求
   Future<PaymentResult> createPayment(PaymentRequest request, {BuildContext? context, Order? order}) async {
@@ -42,25 +39,7 @@ class PaymentService extends ChangeNotifier {
       
       // 不再在支付前创建订单，而是将订单信息传递给支付回调处理
       PaymentResult result;
-
-      if (useRealPayment) {
-         result = await _createAppPayment(request, order!);
-      } else {
-        // 使用模拟支付
-        // 先显示模拟支付提示框
-        final shouldContinue = await _showMockPaymentDialog();
-        if (!shouldContinue) {
-          // 用户取消，返回取消状态
-          result = PaymentResult(
-            paymentId: '',
-            status: PaymentStatus.cancelled,
-            message: LocationUtils.translate('Payment cancelled'),
-          );
-          _showPaymentResultDialog(result);
-          return result;
-        }
-        result = await _createMockPayment(request, order!);
-      }
+       result = await _createAppPayment(request, order!);
       _showPaymentResultDialog(result);
       if(result.isSuccess){
         //这里的订单可能已经被更新了,所以需要重新读取订单
