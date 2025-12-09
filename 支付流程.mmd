@@ -40,7 +40,7 @@ flowchart TD
     CreatePayObj --> GeneratePaymentId[生成支付ID<br/>payObj.getPayid]
     GeneratePaymentId --> SaveOrderToApp[保存订单到App<br/>OrderMonitorService.appSave]
     
-    SaveOrderToApp --> StartPayment[发起支付<br/>payObj.pay]
+    SaveOrderToApp --> StartPayment[确认支付<br/>payObj.pay]
     
     StartPayment --> StartVerification[启动支付验证<br/>每20秒验证一次<br/>最多10分钟超时]
     

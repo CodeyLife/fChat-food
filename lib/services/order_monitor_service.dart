@@ -10,7 +10,6 @@ import '../utils/location.dart';
 import 'unified_order_service.dart';
 import 'package:fchatapi/appapi/AppStorageApi.dart';
 import 'package:fchatapi/webapi/StripeUtil/WebPayUtil.dart';
-import 'payment_callback_service.dart';
 
 /// 订单监控服务
 /// 负责定时获取订单并检测变化，提供全局订单状态管理
@@ -26,9 +25,7 @@ class OrderMonitorService extends GetxController {
   final RxBool _isUpdatingOrders = false.obs; // 是否正在更新订单
   final RxBool _isInitialized = false.obs; // 是否已初始化
   
-  // 待验证订单的定时器管理
-  final Map<String, Timer> _verificationTimers = {}; // paymentId 到定时器的映射
-  final Map<String, Order> _pendingVerificationOrders = {}; // paymentId 到订单对象的映射
+
 
   /// 是否有新订单
   bool get hasNewOrders => _hasNewOrders.value;
@@ -270,140 +267,7 @@ class OrderMonitorService extends GetxController {
       Debug.log('订单删除app成功: $value');
     });
   }
-  
-  /// 启动订单支付验证
-  /// [paymentId] 支付ID
-  /// [order] 订单对象
-  void startPaymentVerification(String paymentId, Order order) {
-    // 如果已经在验证中，先停止旧的验证
-    if (_verificationTimers.containsKey(paymentId)) {
-      Debug.log('paymentId $paymentId 已经在验证中，先停止旧验证');
-      stopPaymentVerification(paymentId);
-    }
-    
-    // 保存订单信息
-    _pendingVerificationOrders[paymentId] = order;
-    
-    Debug.log('启动订单支付验证: paymentId=$paymentId, orderId=${order.id}');
-    
-    // 创建定时器，每30秒验证一次
-    final timer = Timer.periodic(const Duration(seconds: 20), (timer) async {
-      await _performVerification(paymentId, timer);
-    });
-    
-    _verificationTimers[paymentId] = timer;
-    
-    // 立即执行一次验证
-    _performVerification(paymentId, timer);
-  }
-  
-  /// 停止订单支付验证
-  /// [paymentId] 支付ID
-  void stopPaymentVerification(String paymentId) {
-    final timer = _verificationTimers.remove(paymentId);
-    if (timer != null) {
-      timer.cancel();
-      Debug.log('停止订单支付验证: paymentId=$paymentId');
-    }
-    
-    _pendingVerificationOrders.remove(paymentId);
-  }
-  
-  /// 处理支付验证结果
-  /// [order] 订单对象
-  /// [paymentId] 支付ID
-  /// [verifyPayObj] 验证结果
-  /// [shouldStopVerification] 是否停止定时验证（用于定时验证场景）
-  Future<void> _handleVerificationResult(Order order, String paymentId, VerifyPayObj verifyPayObj, {bool shouldStopVerification = false}) async {
-    if (verifyPayObj.ispay) {
-      // 验证成功
-      Debug.log('订单支付验证成功: paymentId=$paymentId, orderId=${order.id}');
-      
-      // 如果需要停止定时验证
-      if (shouldStopVerification) {
-        stopPaymentVerification(paymentId);
-      }
-      
-      // 检查订单是否在订单列表中
-      final orderExists = _orders.any((o) => o.id == order.id || o.paymentId == paymentId);
-      
-      if (!orderExists) {
-        // 订单不在列表中，需要创建订单
-        Debug.log('订单不在列表中，开始创建订单: orderId=${order.id}');
-        
-        try {
-
-          order.status = OrderStatus.paid;
-          order.paymentId = paymentId;
-          
-          // 创建订单
-           bool success = await UnifiedOrderService.addOrder(order);
-           if(success){
-              // 调用支付成功回调
-            final userService = UserService.instance;
-            await PaymentCallbackService.handlePaymentSuccess(
-              order: order,
-              isNewOrder: true,
-              cartController: null,
-              userService: userService,
-              shouldClearCart: false,
-            );
-            
-            // 推送订单消息
-            UnifiedOrderService.pushOrder(order, OrderPushType.newOrder);
-          
-          } else {
-            Debug.logError('订单创建失败', 'filename is null or empty');
-          }
-        } catch (e) {
-          Debug.logError('处理验证成功的订单失败', e);
-        }
-      } else {
-        Debug.log('订单已在列表中，无需创建: orderId=${order.id}');
-      }
-      
-      // 清理缓存
-      appDelete(paymentId);
-    } else {
-      // 验证失败，检查订单是否超时（超过10分钟）
-      final now = DateTime.now();
-      final timeDiff = now.difference(order.createdAt);
-      Debug.log('订单支付验证失败或未支付: paymentId=$paymentId, orderId=${order.id}');
-      
-      if (timeDiff.inMinutes >= 10) {
-        Debug.log('订单支付验证失败且超过10分钟，判定支付失败并移除: paymentId=$paymentId, orderId=${order.id}');
-        appDelete(paymentId);
-        if (shouldStopVerification) {
-          stopPaymentVerification(paymentId);
-        }
-      } else {
-        // 验证失败但未超时，继续等待下次验证
-        Debug.log('订单支付验证失败，继续等待: paymentId=$paymentId, orderId=${order.id},剩余时间: ${ 600 -timeDiff.inSeconds}秒钟');
-      }
-    }
-  }
-  
-  /// 执行支付验证
-  /// [paymentId] 支付ID
-  /// [timer] 定时器对象
-  Future<void> _performVerification(String paymentId, Timer timer) async {
-    try {
-      final order = _pendingVerificationOrders[paymentId];
-      if (order == null) {
-        Debug.log('订单不存在，停止验证: paymentId=$paymentId');
-        stopPaymentVerification(paymentId);
-        return;
-      }
-      
-      // 验证支付状态
-      VerifyPayObj verifyPayObj = await verifyPaymentId(paymentId);
-      
-      // 处理验证结果（需要停止定时验证）
-      await _handleVerificationResult(order, paymentId, verifyPayObj, shouldStopVerification: true);
-    } catch (e) {
-      Debug.logError('执行支付验证失败: paymentId=$paymentId', e);
-    }
-  }
+ 
   
   /// 验证单个 paymentId 的支付状态
   /// [paymentId] 支付ID
@@ -463,8 +327,6 @@ class OrderMonitorService extends GetxController {
             continue;
           }
 
-          // 启动定时验证（使用与支付时相同的逻辑）
-          startPaymentVerification(paymentId, order);
           
         } catch (e) {
           Debug.logError('启动订单定时验证失败: $paymentId', e);

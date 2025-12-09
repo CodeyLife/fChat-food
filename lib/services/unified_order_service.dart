@@ -9,8 +9,6 @@ import '../services/order_counter_service.dart';
 import '../utils/debug.dart';
 import '../utils/location.dart';
 import 'package:fchatapi/appapi/PrintOrderApi.dart';
-import 'package:fchatapi/appapi/VoiceSpeark.dart';
-import 'package:fchatapi/util/PhoneUtil.dart';
 import 'package:fchatapi/util/Translate.dart';
 import 'package:fchatapi/util/JsonUtil.dart';
 import 'package:fchatapi/webapi/PushOrder/PrintObj.dart' as fchatapi;
@@ -97,7 +95,7 @@ class UnifiedOrderService {
       for(Map<String, dynamic> map in maps){
         final order = Order.fromJson(map);
           // 文件名现在就是order.id，不需要单独设置 
-                //先判断这个订单是否存在
+                //先判断是不是重复订单文件
                 final tempOrder = orders.firstWhereOrNull((o) => o.id == order.id);
                 if(tempOrder != null){
                   //判断哪个订单的更新时间更晚
@@ -112,19 +110,29 @@ class UnifiedOrderService {
                     orders.remove(tempOrder);
                   }
                 }
+                //检查订单是否处于待支付，并且已经支付成功
+                if(order.status == OrderStatus.pending && order.paymentId != null && order.paymentId!.isNotEmpty){
+                  var verifyPayObj = await OrderMonitorService.instance.verifyPaymentId(order.paymentId!);
+                  if(verifyPayObj.ispay){
+                    //订单已经支付成功
+                    order.status = OrderStatus.paid;
+                    order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
+                    unawaited(FileUtils.updateOrderInTemp(order)); //更新订单文件
+                  }
+                }
+                
                 // 检查订单是否超时（超过12小时）
                 if (_isOrderTimeout(order)) {
-                  PhoneUtil.applog("发现超时订单: ${order.orderNumber}，创建时间: ${order.createdAt}，准备设置为超时状态");
-                  
+                    Debug.log("发现超时订单: ${order.orderNumber}，创建时间: ${order.createdAt}，准备设置为超时状态");
                   // 异步更新订单状态为超时
                     updateOrderStatusAndSave(order, OrderStatus.timeout).then((success) {
                     if (success) {
-                      PhoneUtil.applog("已成功设置订单为超时状态: ${order.orderNumber}");
+                      Debug.log("已成功设置订单为超时状态: ${order.orderNumber}");
                     } else {
-                      PhoneUtil.applog("设置订单超时状态失败: ${order.orderNumber}");
+                      Debug.logError("设置订单超时状态失败: ${order.orderNumber}");
                     }
                   }).catchError((e) {
-                    PhoneUtil.applog("设置订单超时状态失败: ${order.orderNumber}, 错误: $e");
+                    Debug.logError("设置订单超时状态失败: ${order.orderNumber}, 错误: $e");
                   });
                   
                   // 超时的订单不添加到orders中
@@ -133,17 +141,17 @@ class UnifiedOrderService {
                 
                 // 检查订单是否已完成
                 if (isOrderCompleted(order)) {
-                  PhoneUtil.applog("发现已完成的订单: ${order.orderNumber}，状态: ${order.status.name}，准备移动到购买记录目录");
+                  Debug.log("发现已完成的订单: ${order.orderNumber}，状态: ${order.status.name}，准备移动到购买记录目录");
                   
                   // 异步移动已完成的订单
                   moveCompletedOrderToBuyDayMD(order).then((success) {
                     if (success) {
-                      PhoneUtil.applog("已成功移动订单到购买记录目录: ${order.orderNumber}");
+                      Debug.log("已成功移动订单到购买记录目录: ${order.orderNumber}");
                     } else {
-                      PhoneUtil.applog("移动订单到购买记录目录失败: ${order.orderNumber}");
+                      Debug.logError("移动订单到购买记录目录失败: ${order.orderNumber}");
                     }
                   }).catchError((e) {
-                    PhoneUtil.applog("移动订单到购买记录目录失败: ${order.orderNumber}, 错误: $e");
+                    Debug.logError("移动订单到购买记录目录失败: ${order.orderNumber}, 错误: $e");
                   });
                   
                   // 已完成的订单不添加到orders中
@@ -156,11 +164,11 @@ class UnifiedOrderService {
                   orders.add(order);
                   
                   // 检查订单是否需要打印：状态为paid且未打印
-                  if ( isAdmin && order.status == OrderStatus.paid && !order.isPrinted) {
-                    PhoneUtil.applog("发现未打印的已支付订单: ${order.orderNumber}，准备打印");
+                  if ( isAdmin && !order.isPrinted) {
+                    Debug.log("发现未打印的已支付订单: ${order.orderNumber}，准备打印");
                     // 异步打印订单（不阻塞加载流程）
                     pushPrintOrder(order).catchError((e) {
-                      PhoneUtil.applog("打印订单失败: ${order.orderNumber}, 错误: $e");
+                      Debug.logError("打印订单失败: ${order.orderNumber}, 错误: $e");
                     });
                   }
                 }
@@ -456,11 +464,11 @@ class UnifiedOrderService {
           if(order.id.isNotEmpty){  
            try {
                 order.status = OrderStatus.paid;
-                   order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
-                   OrderMonitorService.instance.updateOrder(order);
-                   Debug.log("服务器解析支付push的订单数据");
-                  await FileUtils.updateOrderInTemp(order);
-                  pushPrintOrder(order);
+                order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
+                OrderMonitorService.instance.updateOrder(order);
+                Debug.log("服务器解析支付push的订单数据");
+                await FileUtils.updateOrderInTemp(order);
+                pushPrintOrder(order);
               } catch (e) {
                 Debug.logError('处理订单失败', e);
               }
@@ -595,13 +603,13 @@ class UnifiedOrderService {
         if(order != null){
             OrderMonitorService.instance.updateOrder(order);
             OrderMonitorService.instance.setStateChange(true);
-            if(order.isPrinted == false){
-              pushPrintOrder(order);
-             Voicespeark().speark(LocationUtils.translate('you have a new order,please check it'), (value) {
-             // 处理语音播放的回调
-             Debug.log('语音播放状态: $value');
-           });
-            }
+          //   if(order.isPrinted == false){
+          //     pushPrintOrder(order);
+          //    Voicespeark().speark(LocationUtils.translate('you have a new order,please check it'), (value) {
+          //    // 处理语音播放的回调
+          //    Debug.log('语音播放状态: $value');
+          //  });
+          //   }
         }else{
           Debug.log("订单${finalOrderPushData.orderId}无法读取，不触发打印了");
         }

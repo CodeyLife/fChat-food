@@ -1,5 +1,5 @@
 
-import '../main.dart';
+
 import '../services/order_monitor_service.dart';
 import '../services/shop_service.dart';
 import 'package:flutter/material.dart';
@@ -9,8 +9,7 @@ import 'package:get/get.dart';
 import '../models/order.dart';
 
 import '../services/app_state_service.dart';
-import '../services/unified_order_service.dart';
-import '../services/payment_service.dart';
+
 import '../services/user_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/location.dart';
@@ -598,190 +597,7 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
     }
   }
 
-  /// 取消订单
-  void _cancelOrder(Order order) {
-    // 显示确认弹窗
-    showDialog(
-      context: context,
-      barrierDismissible: false, // 阻止点击外部关闭
-      builder: (BuildContext context) {
-        return PopScope(
-          canPop: false, // 阻止返回键关闭
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.w),
-            ),
-            title: Row(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.orange.shade600,
-                  size: 24.w,
-                ),
-                SizedBox(width: 8.w),
-                Text(
-                  LocationUtils.translate('Confirm Cancel Order'),
-                  style: TextStyle(
-                    fontSize: 18.sp,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textPrimary,
-                  ),
-                ),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${LocationUtils.translate('Order Number')}: ${order.orderNumber}',
-                  style: TextStyle(
-                    fontSize: 14.sp,
-                    color: AppTheme.textSecondary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                SizedBox(height: 8.h),
-                Text(
-                  LocationUtils.translate('are you sure you want to cancel this order?'),
-                  style: TextStyle(
-                    fontSize: 16.sp,
-                    color: AppTheme.textPrimary,
-                  ),
-                ),
-                SizedBox(height: 4.h),
-                Text(
-                  LocationUtils.translate('After cancellation, it cannot be recovered, please proceed with caution.'),
-                  style: TextStyle(
-                    fontSize: 12.sp,
-                    color: Colors.red.shade600,
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop(); // 关闭弹窗
-                },
-                style: TextButton.styleFrom(
-                  foregroundColor: AppTheme.textSecondary,
-                  padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-                ),
-                child: Text(
-                  LocationUtils.translate('Cancel'),
-                  style: TextStyle(fontSize: 14.sp),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.of(context).pop(); // 关闭弹窗
-                  
-                  // 显示处理中的弹窗
-                  _showProcessingDialog();
-                  
-                  // 执行取消订单操作
-                  var success = await UnifiedOrderService.cancelOrder(order);
-                  
-                  // 关闭处理中弹窗
-                  Navigator.of(navigatorKey.currentContext!).pop();
-                  
-                  if (success) {
 
-                    SnackBarUtils.showSuccess(LocationUtils.translate('Order Cancel Success'));
-                  } else {
-                    _showErrorMessage(LocationUtils.translate('Order Cancel Failed'));
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red.shade600,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8.w),
-                  ),
-                ),
-                child: Text(
-                  'Confirm Cancel',
-                  style: TextStyle(fontSize: 14.sp),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  /// 显示处理中的弹窗
-  void _showProcessingDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return PopScope(
-          canPop: false,
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.w),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 40.w,
-                  height: 40.w,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue),
-                  ),
-                ),
-                SizedBox(height: 16.h),
-                Text(
-                  'Processing...',
-                  style: TextStyle(
-                    fontSize: 16.sp,
-                    color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                SizedBox(height: 4.h),
-                Text(
-                  'Please wait, do not close the page',
-                  style: TextStyle(
-                    fontSize: 12.sp,
-                    color: AppTheme.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// 显示错误消息
-  void _showErrorMessage(String message) {
-    SnackBarUtils.showErrorWithIcon(context, message);
-  }
-
-  /// 显示支付二维码
-  void _showPaymentQR(Order order) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => QRCodeScreen(
-          title: LocationUtils.translate('Order Payment'),
-          data: order.orderNumber,
-          type: QRCodeType.payment,
-          extraData: {
-            'amount': order.totalAmount,
-          },
-        ),
-      ),
-    );
-  }
 
   /// 显示取餐码
   /// 使用订单的唯一ID (order.id) 生成二维码
@@ -801,30 +617,7 @@ class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMix
     );
   }
 
-  /// 支付订单
-  void _payOrder(Order order) async {
-    if (_orderMonitorService == null) {
-      _showError('Order Monitor Service Not Initialized');
-      return;
-    }
-    
-    // 等待更新完成
-    await _orderMonitorService!.waitForUpdateComplete();
-    
-    try {
-      if(mounted){
-      // 使用统一支付服务
-      await PaymentService.processPayment(
-        order: order,
-        source: PaymentSource.orderPay,
-          context: context,
-          isFromCart: false,
-        );
-      }
-    } catch (e) {
-      _showError('支付失败: $e');
-    }
-  }
+
 
   /// 清除订单提醒
   void _clearOrderAlerts() {

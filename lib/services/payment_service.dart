@@ -10,7 +10,6 @@ import '../models/payment.dart';
 import '../models/order.dart';
 import '../widgets/payment_processing_dialog.dart';
 import 'navigation_service.dart';
-import 'order_counter_service.dart';
 import 'order_monitor_service.dart';
 import 'unified_order_service.dart';
 import 'payment_callback_service.dart';
@@ -108,27 +107,22 @@ class PaymentService extends ChangeNotifier {
       order.paymentId = payObj.getPayid();
 
      //保存订单到服务器临时订单
-      // final orderCreated = await UnifiedOrderService.addOrder(order, generateOrderNumber: false);
-      // if(!orderCreated){
-      //   return PaymentResult(
-      //     paymentId: '',
-      //     status: PaymentStatus.failed,
-      //     message: LocationUtils.translate('Failed to create payment request: \$e'),
-      //   );
-      // }
+      final orderCreated = await UnifiedOrderService.addOrder(order, generateOrderNumber: false);
+      if(!orderCreated){
+        return PaymentResult(
+          paymentId: '',
+          status: PaymentStatus.failed,
+          message: LocationUtils.translate('Failed to create payment request: \$e'),
+        );
+      }
 
       // 使用Completer等待支付回调
       final completer = Completer<PaymentResult>();
-    
 
-            //先保存订单到app
-      OrderMonitorService.instance.appSave(order);
-     
       // 发起支付
       payObj.pay((value) async {
         try {
           Debug.log('收到App支付回调: $value');
-          
           // 解析支付回调数据
           final Map<String, dynamic> recmap = JsonUtil.strtoMap(value);
           
@@ -148,10 +142,7 @@ class PaymentService extends ChangeNotifier {
             isSuccess = false;
             failureReason = 'status is null';
           }
-          
-          // 无论成功还是失败，都要清理缓存和停止验证
-          final paymentIdForCleanup = order.paymentId ?? recmap["payid"] ?? "";
-          
+
           if(!isSuccess){
             // 根据失败原因判断状态类型
             PaymentStatus failureStatus = PaymentStatus.cancelled;
@@ -177,12 +168,7 @@ class PaymentService extends ChangeNotifier {
                 errorMessage = LocationUtils.translate('Payment failed: $failureReason');
               }
             }
-            
-            // 支付回调执行（失败），清理缓存和停止验证
-            if (paymentIdForCleanup.isNotEmpty) {
-              OrderMonitorService.instance.stopPaymentVerification(paymentIdForCleanup);
-              OrderMonitorService.instance.appDelete(paymentIdForCleanup);
-            }
+
             
             completer.complete(PaymentResult(
               paymentId: '',
@@ -195,12 +181,7 @@ class PaymentService extends ChangeNotifier {
           final String payid = recmap["payid"] ?? "";
           if (payid.isEmpty) {
             Debug.log('支付回调缺少payid');
-            // 支付回调执行（缺少payid），清理缓存和停止验证
-            final paymentIdForCleanup = order.paymentId ?? "";
-            if (paymentIdForCleanup.isNotEmpty) {
-              OrderMonitorService.instance.stopPaymentVerification(paymentIdForCleanup);
-              OrderMonitorService.instance.appDelete(paymentIdForCleanup);
-            }
+
             completer.complete(PaymentResult(
               paymentId: '',
               status: PaymentStatus.failed,
@@ -208,11 +189,7 @@ class PaymentService extends ChangeNotifier {
             ));
             return;
           }
-          
-          // 支付回调执行（成功），清理缓存和停止验证
-          OrderMonitorService.instance.stopPaymentVerification(payid);
-          OrderMonitorService.instance.appDelete(payid);
-          
+
           // 创建支付成功结果
           final result = PaymentResult(
             paymentId: payid,
@@ -230,12 +207,6 @@ class PaymentService extends ChangeNotifier {
           
         } catch (e) {
           Debug.log('处理App支付回调失败: $e');
-          // 支付回调执行（异常），清理缓存和停止验证
-          final paymentIdForCleanup = order.paymentId ?? "";
-          if (paymentIdForCleanup.isNotEmpty) {
-            OrderMonitorService.instance.stopPaymentVerification(paymentIdForCleanup);
-            OrderMonitorService.instance.appDelete(paymentIdForCleanup);
-          }
           if(!completer.isCompleted){
              completer.complete(PaymentResult(
             paymentId: '',
@@ -245,20 +216,8 @@ class PaymentService extends ChangeNotifier {
           }
         }
       });
-       // 启动支付验证（每30秒验证一次）
-      OrderMonitorService.instance.startPaymentVerification(order.paymentId!, order);
-      // 等待支付结果，设置超时
-      return await completer.future.timeout(
-        const Duration(minutes: 5),
-        onTimeout: () {
-          Debug.log('App支付超时');
-          return PaymentResult(
-            paymentId: '',
-            status: PaymentStatus.timeout,
-            message: LocationUtils.translate('Payment timeout'),
-          );
-        },
-      );
+      // 等待支付结果
+      return await completer.future;
 
     } catch (e) {
       Debug.log('App支付失败: $e');
@@ -267,50 +226,6 @@ class PaymentService extends ChangeNotifier {
         status: PaymentStatus.failed,
         message: LocationUtils.translate('App payment failed: \$e'),
       );
-    }
-  }
-
-
-  /// 验证支付结果
-  Future<bool> verifyPayment(String paymentId) async {
-    try {
-      Debug.log('验证支付结果: $paymentId');
-      
-      // 这里应该调用后端API验证支付结果
-      // 暂时返回true表示验证成功
-      return true;
-    } catch (e) {
-      Debug.log('验证支付结果失败: $e');
-      return false;
-    }
-  }
-
-
-
-  /// 取消支付
-  Future<void> cancelPayment(String paymentId) async {
-    try {
-      Debug.log('取消支付: $paymentId');
-      
-      // 这里应该调用支付API取消支付
-      // 具体实现根据支付API进行
-      
-    } catch (e) {
-      Debug.log('取消支付失败: $e');
-    }
-  }
-
-  /// 获取支付状态
-  Future<PaymentStatus> getPaymentStatus(String paymentId) async {
-    try {
-      Debug.log('获取支付状态: $paymentId');
-      
-      // 这里应该调用支付API查询支付状态
-      // 暂时返回成功状态
-      return PaymentStatus.success;
-    } catch (e) {
-      Debug.log('获取支付状态失败: $e');
-      return PaymentStatus.failed;
     }
   }
 
@@ -509,7 +424,6 @@ class PaymentService extends ChangeNotifier {
         Debug.logWarning('统一支付服务: 上下文已失效，取消操作');
         return;
       }
-      
       // 计算商品小计
       final calculatedSubtotal = subtotal ?? items.fold(0.0, (sum, item) => sum! + (item.price * item.quantity));
       
@@ -548,62 +462,22 @@ class PaymentService extends ChangeNotifier {
     }
   }
 
-  /// 检查并创建订单（如果需要）
-  /// 每秒检查一次临时订单文件是否存在，最多持续10秒
-  /// 如果文件存在则读取并更新订单信息，如果10秒后仍不存在则创建订单并推送消息
+  /// 检查并创建订单
   Future<void> _checkAndCreateOrderIfNeeded(Order order) async {
     try {
-      const maxAttempts = 3; // 最多检查次数
-      bool fileFound = false;
-      
-      // 每秒检查一次，最多持续10秒
-      for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-        // 检查临时订单文件是否存在
-        final fileExists = await FileUtils.checkTempOrderFileExists(order.id);
-        
-        if (fileExists) {
-          // 文件存在，读取订单并更新
-          final readOrder = await Order.readOrderWithOrderId(order.id);
-          if (readOrder != null) {
-            Debug.log('临时订单文件已存在，已读取订单: ${readOrder.orderNumber}');
-            // 更新本地订单对象
-            order.copyFrom(readOrder);
-            OrderMonitorService.instance.updateOrder(order);
-            fileFound = true;
-            break; // 找到文件，退出循环
-          }
-        }
-        
-        // 如果还没到最后一次尝试，等待1秒后继续
-        if (attempt < maxAttempts) {
-          await Future.delayed(const Duration(seconds: 2));
-        }
-      }
-      
-      // 如果10秒后仍然没有找到文件，创建订单并推送消息
-      if (!fileFound) {
-        Debug.log('临时订单文件不存在，开始创建订单: ${order.id}');
-        order.status = OrderStatus.paid;
-        // 获取订单号
-        if (order.orderNumber.isEmpty) {
-          order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
-        }
-        
-        // 保存订单到临时目录
-        final success = await FileUtils.saveOrderToTemp(order);
-        if (success) {
-          Debug.log('订单已保存到临时目录: ${order.orderNumber}');
-          // 更新 OrderMonitorService
+      while(order.status == OrderStatus.pending){
+        await Future.delayed(const Duration(seconds: 2));
+        var tempOrder = await Order.readOrderWithOrderId(order.id);
+        if(tempOrder != null && tempOrder.status != OrderStatus.pending)
+        {
+          //证明订单已经被改变了
+          order.copyFrom(tempOrder);
           OrderMonitorService.instance.updateOrder(order);
-          // 推送订单消息
-          unawaited(UnifiedOrderService.pushOrder(order, OrderPushType.newOrder));
-        } else {
-          Debug.logError('保存订单到临时目录失败: ${order.orderNumber}');
+          OrderMonitorService.instance.setStateChange(false);
         }
       }
     } catch (e) {
-      Debug.logError('检查并创建订单失败: $e', Exception('检查并创建订单失败'));
+      Debug.logError('检查并创建订单时发生异常: $e');
+      // 这里可以考虑通知用户或系统管理员，具体视业务需求而定
     }
-  }
-
-}
+  }}
