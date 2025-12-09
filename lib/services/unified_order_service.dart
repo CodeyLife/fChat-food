@@ -374,7 +374,7 @@ class UnifiedOrderService {
       // 获取并移除该订单的所有 Completer
       final completers = _printCompleters.remove(order.id);
 
-      if (value == PrintStatus.Complete || ConfigService.isTest) {
+      if (value == PrintStatus.Complete) {
         Debug.log('打印订单成功: ${order.orderNumber}');
         // 更新订单的isPrinted字段并保存
         final updatedOrder = order.copyWith(isPrinted: true);
@@ -455,20 +455,12 @@ class UnifiedOrderService {
           var order = Order.fromJson(orderData);
           if(order.id.isNotEmpty){  
            try {
-                await order.updateInService();
                 order.status = OrderStatus.paid;
-                     //先判断订单是否有订单号
-                  if(order.orderNumber.isEmpty){
-                    //生成订单号
-                    order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
-                  }
+                   order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
                    OrderMonitorService.instance.updateOrder(order);
                    Debug.log("服务器解析支付push的订单数据");
                   await FileUtils.updateOrderInTemp(order);
-
-                  if(!order.isPrinted){
-                    pushPrintOrder(order);
-                  }
+                  pushPrintOrder(order);
               } catch (e) {
                 Debug.logError('处理订单失败', e);
               }

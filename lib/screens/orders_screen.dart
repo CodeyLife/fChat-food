@@ -29,7 +29,7 @@ class OrdersScreen extends StatefulWidget {
   State<OrdersScreen> createState() => _OrdersScreenState();
 }
 
-class _OrdersScreenState extends State<OrdersScreen> {
+class _OrdersScreenState extends State<OrdersScreen> with TickerProviderStateMixin {
   // 搜索相关
   final RxString _searchQuery = ''.obs;
   final TextEditingController _searchController = TextEditingController();
@@ -44,12 +44,21 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   // 保存 OrderMonitorService 引用
   OrderMonitorService? _orderMonitorService;
+  
+  // 流动进度条动画控制器
+  late final AnimationController _flowingProgressController;
 
   @override
   void initState() {
     super.initState();
     // 初始化 OrderMonitorService
     _orderMonitorService = OrderMonitorService.instance;
+    
+    // 初始化流动进度条动画控制器
+    _flowingProgressController = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    )..repeat();
   }
   
 
@@ -65,6 +74,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     _searchController.dispose();
     _searchDebouncer.dispose();
     _loadDebouncer.dispose();
+    _flowingProgressController.dispose();
     
     super.dispose();
   }
@@ -309,6 +319,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   /// 构建订单卡片
   Widget _buildOrderCard(Order order) {
+    final isPending = order.status == OrderStatus.pending;
+    
     return Container(
       margin: EdgeInsets.only(bottom: AppSpacing.md),
       decoration: BoxDecoration(
@@ -327,37 +339,78 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ),
         ],
       ),
-      child: Column(
+      child: Stack(
         children: [
-          // 订单头部
-          Padding(
-            padding: EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '${LocationUtils.translate('Order Number')}: ${order.orderNumber}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textSecondary,
-                  ),
-                ),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2.h),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(order.status).withValues(alpha:0.1),
-                    borderRadius: AppRadius.sm,
-                  ),
-                  child: Text(
-                    order.getStatusText(),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: _getStatusColor(order.status),
-                      fontWeight: FontWeight.w500,
+          // 卡片内容
+          Column(
+            children: [
+              // 订单头部
+              Padding(
+                padding: EdgeInsets.all(AppSpacing.md),
+                child: Column(
+                  children: [
+                    // 处理中提示（仅 pending 状态显示）
+                    if (isPending)
+                      Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.symmetric(vertical: AppSpacing.sm, horizontal: AppSpacing.md),
+                        margin: EdgeInsets.only(bottom: AppSpacing.sm),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                          borderRadius: AppRadius.sm,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 16.w,
+                              height: 16.w,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue),
+                              ),
+                            ),
+                            SizedBox(width: AppSpacing.sm),
+                            Text(
+                              LocationUtils.translate('Order is being processed'),
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppTheme.primaryBlue,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    
+                    // 订单号行
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${LocationUtils.translate('Order Number')}: ${order.orderNumber}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2.h),
+                          decoration: BoxDecoration(
+                            color: _getStatusColor(order.status).withValues(alpha:0.1),
+                            borderRadius: AppRadius.sm,
+                          ),
+                          child: Text(
+                            order.getStatusText(),
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: _getStatusColor(order.status),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
           
           // 商品列表
           ...order.items.map((item) {
@@ -482,69 +535,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
             ),
           ),
           
-          // 操作按钮
-          if (order.status == OrderStatus.pending)
-            Container(
-              padding: EdgeInsets.all(AppSpacing.md),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => _cancelOrder(order),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppTheme.accentRed,
-                      padding: EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-                    ),
-                    child: Text(
-                      LocationUtils.translate('Cancel Order'),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.accentRed,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: AppSpacing.sm),
-                  ElevatedButton(
-                    onPressed: () => _payOrder(order),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primaryBlue,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: AppRadius.sm,
-                      ),
-                      elevation: 0,
-                    ),
-                    child: Text(
-                      LocationUtils.translate('Pay Now'),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  
-                  SizedBox(width: AppSpacing.sm),
-                  
-                  OutlinedButton(
-                    onPressed: () => _showPaymentQR(order),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.primaryBlue,
-                      side: BorderSide(color: AppTheme.primaryBlue),
-                      padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: AppRadius.sm,
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.qr_code,
-                      size: 16.w,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          
           // 待取餐状态的操作按钮
           if (order.status == OrderStatus.readyForPickup)
             Container(
@@ -567,6 +557,16 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ],
+        ),
+          // 流动进度条覆盖层（仅 pending 状态显示，覆盖整个卡片）
+          if (isPending)
+            Positioned.fill(
+              child: _FlowingProgressBar(
+                controller: _flowingProgressController,
+                color: AppTheme.primaryBlue,
               ),
             ),
         ],
@@ -833,4 +833,65 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
   }
 
+}
+
+/// 流动进度条 Widget
+/// 用于显示订单处理中的流动动画效果，覆盖整个卡片
+class _FlowingProgressBar extends StatelessWidget {
+  final AnimationController controller;
+  final Color color;
+
+  const _FlowingProgressBar({
+    required this.controller,
+    this.color = AppTheme.primaryBlue,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, child) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final cardWidth = constraints.maxWidth;
+            final cardHeight = constraints.maxHeight;
+            // 计算流动条的位置，使其从左到右循环流动
+            final offsetX = (controller.value * 2 - 1) * cardWidth;
+            
+            return IgnorePointer(
+              child: ClipRRect(
+                borderRadius: AppRadius.lg,
+                child: Stack(
+                  children: [
+                    // 流动的渐变层 - 覆盖整个卡片高度
+                    Transform.translate(
+                      offset: Offset(offsetX, 0),
+                      child: Container(
+                        width: cardWidth * 0.6,
+                        height: cardHeight,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [
+                              Colors.transparent,
+                              color.withValues(alpha: 0.15),
+                              color.withValues(alpha: 0.3),
+                              color.withValues(alpha: 0.15),
+                              Colors.transparent,
+                            ],
+                            stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }

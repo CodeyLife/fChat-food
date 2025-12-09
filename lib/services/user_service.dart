@@ -816,7 +816,8 @@ class UserService extends GetxController {
       // 检查数据是否为空
       if (data == null || data.isEmpty) {
         Debug.log('管理员用户ID文件为空，返回空列表');
-        return [];
+         _updateAdminUserIds([]);
+         return _adminUserIds;
       }
 
       // 解析JSON数组格式的数据

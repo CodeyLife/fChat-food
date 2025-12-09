@@ -1,0 +1,133 @@
+flowchart TD
+    Start([用户发起支付]) --> CheckSource{支付来源}
+    
+    %% 立即购买流程
+    CheckSource -->|立即购买 buyNow| BuyNow[创建订单对象<br/>计算小计和配送费]
+    BuyNow --> PaymentScreen1[跳转到支付页面<br/>PaymentScreen]
+    
+    %% 购物车结算流程
+    CheckSource -->|购物车结算 cart| Cart[创建订单对象<br/>计算小计和配送费]
+    Cart --> PaymentScreen2[跳转到支付页面<br/>PaymentScreen]
+    
+    %% 订单立即支付流程
+    CheckSource -->|订单立即支付 orderPay| DirectPay[直接处理支付<br/>不跳转页面]
+    
+    %% 支付页面处理流程
+    PaymentScreen1 --> FillInfo[填写订单信息<br/>- 选择订单类型<br/>- 选择配送地址<br/>- 填写备注]
+    PaymentScreen2 --> FillInfo
+    
+    FillInfo --> Validate{验证表单}
+    Validate -->|验证失败| ShowError[显示错误提示]
+    ShowError --> FillInfo
+    
+    Validate -->|验证成功| CheckEnv{检查环境}
+    CheckEnv -->|非FChat环境| ShowDialog[显示FChat支付提示]
+    ShowDialog --> End1([结束])
+    
+    CheckEnv -->|FChat环境| PrepareOrder[准备订单数据<br/>- 更新订单类型<br/>- 更新配送地址<br/>- 更新配送费<br/>- 更新总金额]
+    
+    %% 直接支付流程
+    DirectPay --> CreatePaymentReq1[创建支付请求<br/>PaymentRequest]
+    
+    %% 支付页面支付流程
+    PrepareOrder --> CreatePaymentReq2[创建支付请求<br/>PaymentRequest]
+    
+    CreatePaymentReq1 --> CreateAppPayment[创建App支付<br/>_createAppPayment]
+    CreatePaymentReq2 --> CreateAppPayment
+    
+    CreateAppPayment --> CreatePayObj[创建FChat支付对象<br/>PayObj<br/>- 订单信息<br/>- 支付金额<br/>- 支付描述]
+    
+    CreatePayObj --> GeneratePaymentId[生成支付ID<br/>payObj.getPayid]
+    GeneratePaymentId --> SaveOrderToApp[保存订单到App<br/>OrderMonitorService.appSave]
+    
+    SaveOrderToApp --> StartPayment[发起支付<br/>payObj.pay]
+    
+    StartPayment --> StartVerification[启动支付验证<br/>每20秒验证一次<br/>最多10分钟超时]
+    
+    %% 服务器推送消息（发起支付时）
+    StartPayment -.->|服务器push订单消息| ServerPush[服务器推送订单消息<br/>给服务号用户<br/>📤 推送时机1: 发起支付时]
+    
+    ServerPush --> ParseServerPush[服务号解析push消息<br/>UnifiedOrderService.parseOrderPushData<br/>- 更新订单状态为已支付<br/>- 生成订单号<br/>- 保存订单文件<br/>- 推送打印订单]
+    
+    StartVerification --> WaitCallback[等待支付回调<br/>⏳ 异步等待<br/>使用Completer等待结果]
+    StartVerification -->|定时验证| VerifyPayment[定时验证支付状态<br/>每20秒验证一次<br/>WebPayUtil.isverifyPay]
+    
+    VerifyPayment --> VerifyResult{验证结果}
+    VerifyResult -->|支付成功| HandleVerifySuccess[处理验证成功<br/>- 创建订单<br/>- 调用支付成功回调<br/>📤 推送订单消息<br/>OrderPushType.newOrder]
+    VerifyResult -->|未支付| ContinueVerify[继续等待验证<br/>最多10分钟]
+    ContinueVerify --> VerifyPayment
+    
+    WaitCallback --> ReceiveCallback{收到支付回调}
+    
+    ReceiveCallback -->|支付成功| ParseSuccess[解析支付结果<br/>status = true<br/>获取payid]
+    ReceiveCallback -->|支付失败| ParseFailure[解析失败原因<br/>status = 失败原因字符串]
+    ReceiveCallback -->|支付取消| ParseCancel[解析取消原因<br/>status = cancelled]
+    ReceiveCallback -->|支付超时| ParseTimeout[支付超时<br/>5分钟未收到回调]
+    
+    ParseSuccess --> CleanupSuccess[清理缓存<br/>停止验证<br/>删除App中的订单]
+    ParseFailure --> CleanupFailure[清理缓存<br/>停止验证<br/>删除App中的订单]
+    ParseCancel --> CleanupCancel[清理缓存<br/>停止验证<br/>删除App中的订单]
+    ParseTimeout --> CleanupTimeout[清理缓存<br/>停止验证]
+    
+    CleanupSuccess --> UpdateOrder[更新订单状态<br/>- 更新订单到服务]
+    UpdateOrder --> ShowSuccessDialog[显示支付成功弹窗]
+    ShowSuccessDialog --> NavigateToOrders[跳转到订单页面<br/>NavigationService.switchToOrdersPage]
+    
+    NavigateToOrders --> CheckOrderFile[检查临时订单文件<br/>_checkAndCreateOrderIfNeeded<br/>最多检查3次，每次间隔2秒]
+    
+    CheckOrderFile --> FileExists{文件是否存在}
+    FileExists -->|存在| ReadOrder[读取订单并更新<br/>Order.readOrderWithOrderId]
+    FileExists -->|不存在| CreateOrder[创建订单<br/>- 状态改为已支付<br/>- 获取订单号<br/>- 保存订单文件<br/>📤 推送订单消息<br/>OrderPushType.newOrder<br/>📤 推送时机2: 支付成功后创建订单]
+    
+    ReadOrder --> UpdateOrderMonitor[更新OrderMonitorService]
+    CreateOrder --> UpdateOrderMonitor
+    
+    UpdateOrderMonitor --> HandlePaymentSuccess[处理支付成功回调<br/>PaymentCallbackService.handlePaymentSuccess<br/>- 清空购物车<br/>- 给予下单奖励经验]
+    
+    HandlePaymentSuccess --> End2([支付完成])
+    
+    HandleVerifySuccess --> End2
+    
+    %% Push消息处理流程（异步监听）
+    CreateOrder -.->|触发push消息| ParsePushMessage[解析push消息<br/>FChatBridge.onMessage监听<br/>UnifiedOrderService.parseOrderPushData<br/>⏳ 异步等待]
+    HandleVerifySuccess -.->|触发push消息| ParsePushMessage
+    
+    ParsePushMessage --> HandlePushData{处理push数据}
+    HandlePushData -->|订单数据| UpdateOrderFromPush[更新订单<br/>- 更新订单状态为已支付<br/>- 生成订单号 ⏳ 异步等待<br/>- 更新订单到服务 ⏳ 异步等待<br/>- 更新订单文件 ⏳ 异步等待]
+    HandlePushData -->|订单推送数据| ProcessOrderPush[处理订单推送<br/>- 根据推送类型操作<br/>- 更新订单状态<br/>- 刷新订单列表]
+    
+    UpdateOrderFromPush --> CheckPrint{订单是否已打印}
+    CheckPrint -->|未打印| PushPrintOrder[推送打印订单]
+    CheckPrint -->|已打印| End4([Push消息处理完成])
+    
+    ProcessOrderPush --> End4
+    
+    CleanupFailure --> ShowFailureDialog[显示支付失败弹窗]
+    CleanupCancel --> ShowCancelDialog[显示支付取消弹窗]
+    CleanupTimeout --> ShowTimeoutDialog[显示支付超时弹窗]
+    
+    ShowFailureDialog --> DeleteTempOrder[删除临时订单文件<br/>⏳ 异步等待]
+    ShowCancelDialog --> DeleteTempOrder
+    ShowTimeoutDialog --> DeleteTempOrder
+    
+    DeleteTempOrder --> End3([支付失败/取消/超时])
+    
+    style Start fill:#e1f5ff
+    style End2 fill:#c8e6c9
+    style End4 fill:#c8e6c9
+    style End1 fill:#ffccbc
+    style End3 fill:#ffccbc
+    style ParseSuccess fill:#c8e6c9
+    style ParseFailure fill:#ffcdd2
+    style ParseCancel fill:#ffe0b2
+    style ParseTimeout fill:#ffe0b2
+    style WaitCallback fill:#fff9c4
+    style UpdateOrder fill:#fff9c4
+    style ParsePushMessage fill:#fff9c4
+    style UpdateOrderFromPush fill:#fff9c4
+    style HandlePaymentSuccess fill:#fff9c4
+    style DeleteTempOrder fill:#fff9c4
+    style ServerPush fill:#ffeb3b,stroke:#f57f17,stroke-width:3px
+    style ParseServerPush fill:#ffeb3b,stroke:#f57f17,stroke-width:3px
+    style CreateOrder fill:#4caf50,stroke:#2e7d32,stroke-width:3px
+    style HandleVerifySuccess fill:#4caf50,stroke:#2e7d32,stroke-width:3px

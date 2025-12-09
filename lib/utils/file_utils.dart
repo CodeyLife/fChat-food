@@ -554,30 +554,7 @@ class FileUtils {
   /// [filename] 文件名
   /// 返回: 文件存在返回true，不存在返回false
   static Future<bool> checkTempOrderFileExists(String filename) async {
-    try {
-      PhoneUtil.applog('检查临时订单文件是否存在: $filename');
-      
-      final completer = Completer<bool>();
-      
-      // 使用 FChatFileArrObj 而不是 FChatApiSdk.filearrobj
-      FChatFileArrObj fileArrObj = FChatFileArrObj();
-      fileArrObj.readMD((value) {
-        try {
-          // value是List<FChatFileObj>，需要检查文件名是否存在
-          bool exists = value.any((fileObj) => fileObj.filename == filename);
-          PhoneUtil.applog('临时订单文件存在性检查结果: $exists');
-          completer.complete(exists);
-        } catch (e) {
-          PhoneUtil.applog('检查临时订单文件存在性失败: $e');
-          completer.complete(false);
-        }
-      }, md: AppConstants.tmporder.name);
-      
-      return await completer.future;
-    } catch (e) {
-      PhoneUtil.applog('检查临时订单文件存在性异常: $e');
-      return false;
-    }
+      return await fileExists(AppConstants.tmporder, filename);
   }
 
   /// 删除临时订单文件

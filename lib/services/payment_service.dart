@@ -42,26 +42,32 @@ class PaymentService extends ChangeNotifier {
        result = await _createAppPayment(request, order!);
       _showPaymentResultDialog(result);
       if(result.isSuccess){
+        
         //这里的订单可能已经被更新了,所以需要重新读取订单
-        await order.updateInService();
-         if(order.orderNumber.isEmpty)
-          {
-            order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
-          }
-          if(order.status == OrderStatus.pending)
-          {
-            order.status = OrderStatus.paid;
-          }
-          OrderMonitorService.instance.updateOrder(order);
-            //跳转到订单页面
-          NavigationService.switchToOrdersPage();
-        // 更新订单文件
-          bool success = await FileUtils.updateOrderInTemp(order);
-          if(success){
-           //push订单消息
-            unawaited(UnifiedOrderService.pushOrder(order, OrderPushType.newOrder));
-          }
-      
+        // await order.updateInService();
+        //  if(order.orderNumber.isEmpty)
+        //   {
+        //     order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
+        //   }
+        //   if(order.status == OrderStatus.pending)
+        //   {
+        //     order.status = OrderStatus.paid;
+        //   }
+        //   OrderMonitorService.instance.updateOrder(order);
+        //     //跳转到订单页面
+        //   NavigationService.switchToOrdersPage();
+        // // 更新订单文件
+        //   bool success = await FileUtils.updateOrderInTemp(order);
+        //   if(success){
+        //    //push订单消息
+        //     unawaited(UnifiedOrderService.pushOrder(order, OrderPushType.newOrder));
+        //   }
+        OrderMonitorService.instance.updateOrder(order);
+          //跳转到订单页面
+        NavigationService.switchToOrdersPage();
+        // 异步检查并创建订单
+        unawaited(_checkAndCreateOrderIfNeeded(order));
+
        
       }else
       {
@@ -100,15 +106,17 @@ class PaymentService extends ChangeNotifier {
       payObj.amount = request.amount.toStringAsFixed(2);
       payObj.paytext = request.description;
       order.paymentId = payObj.getPayid();
+
      //保存订单到服务器临时订单
-      final orderCreated = await UnifiedOrderService.addOrder(order, generateOrderNumber: false);
-      if(!orderCreated){
-        return PaymentResult(
-          paymentId: '',
-          status: PaymentStatus.failed,
-          message: LocationUtils.translate('Failed to create payment request: \$e'),
-        );
-      }
+      // final orderCreated = await UnifiedOrderService.addOrder(order, generateOrderNumber: false);
+      // if(!orderCreated){
+      //   return PaymentResult(
+      //     paymentId: '',
+      //     status: PaymentStatus.failed,
+      //     message: LocationUtils.translate('Failed to create payment request: \$e'),
+      //   );
+      // }
+
       // 使用Completer等待支付回调
       final completer = Completer<PaymentResult>();
     
@@ -537,6 +545,64 @@ class PaymentService extends ChangeNotifier {
       if(context.mounted) {
          Debug.showUserFriendlyError('创建订单失败: $e');
       }
+    }
+  }
+
+  /// 检查并创建订单（如果需要）
+  /// 每秒检查一次临时订单文件是否存在，最多持续10秒
+  /// 如果文件存在则读取并更新订单信息，如果10秒后仍不存在则创建订单并推送消息
+  Future<void> _checkAndCreateOrderIfNeeded(Order order) async {
+    try {
+      const maxAttempts = 3; // 最多检查次数
+      bool fileFound = false;
+      
+      // 每秒检查一次，最多持续10秒
+      for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+        // 检查临时订单文件是否存在
+        final fileExists = await FileUtils.checkTempOrderFileExists(order.id);
+        
+        if (fileExists) {
+          // 文件存在，读取订单并更新
+          final readOrder = await Order.readOrderWithOrderId(order.id);
+          if (readOrder != null) {
+            Debug.log('临时订单文件已存在，已读取订单: ${readOrder.orderNumber}');
+            // 更新本地订单对象
+            order.copyFrom(readOrder);
+            OrderMonitorService.instance.updateOrder(order);
+            fileFound = true;
+            break; // 找到文件，退出循环
+          }
+        }
+        
+        // 如果还没到最后一次尝试，等待1秒后继续
+        if (attempt < maxAttempts) {
+          await Future.delayed(const Duration(seconds: 2));
+        }
+      }
+      
+      // 如果10秒后仍然没有找到文件，创建订单并推送消息
+      if (!fileFound) {
+        Debug.log('临时订单文件不存在，开始创建订单: ${order.id}');
+        order.status = OrderStatus.paid;
+        // 获取订单号
+        if (order.orderNumber.isEmpty) {
+          order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
+        }
+        
+        // 保存订单到临时目录
+        final success = await FileUtils.saveOrderToTemp(order);
+        if (success) {
+          Debug.log('订单已保存到临时目录: ${order.orderNumber}');
+          // 更新 OrderMonitorService
+          OrderMonitorService.instance.updateOrder(order);
+          // 推送订单消息
+          unawaited(UnifiedOrderService.pushOrder(order, OrderPushType.newOrder));
+        } else {
+          Debug.logError('保存订单到临时目录失败: ${order.orderNumber}');
+        }
+      }
+    } catch (e) {
+      Debug.logError('检查并创建订单失败: $e', Exception('检查并创建订单失败'));
     }
   }
 
