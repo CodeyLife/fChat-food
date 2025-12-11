@@ -293,20 +293,83 @@
     // 在 body 标签内添加
     window.flutterWebRenderer = "html";
   </script> -->
+  <!-- 全局错误处理 - 必须在其他脚本之前 -->
+  <script>
+    // 全局错误处理
+    window.addEventListener('error', function(event) {
+      console.error('[全局错误]', {
+        message: event.message,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+        error: event.error
+      });
+      // 不阻止默认错误处理
+      return false;
+    });
+
+    // 捕获未处理的 Promise 拒绝
+    window.addEventListener('unhandledrejection', function(event) {
+      console.error('[未处理的 Promise 拒绝]', {
+        reason: event.reason,
+        promise: event.promise
+      });
+    });
+
+    // 兼容旧版浏览器的 window.onerror
+    window.onerror = function(message, source, lineno, colno, error) {
+      console.error('[window.onerror]', {
+        message: message,
+        source: source,
+        lineno: lineno,
+        colno: colno,
+        error: error
+      });
+      return false; // 不阻止默认错误处理
+    };
+
+    console.log('[初始化] 全局错误处理已设置');
+  </script>
+
   <!-- 脚本延迟加载，保证 Flutter 初始化顺序 -->
   <script src="flutter_bootstrap.js" defer></script>
   <script>
+    console.log('[初始化] 开始加载应用脚本...');
+    console.log('[初始化] Flutter bootstrap 脚本已添加到加载队列（defer）');
+    
+    // 监听 Flutter 应用启动
+    window.addEventListener('flutter-first-frame', function() {
+      console.log('[Flutter] 第一帧已渲染，应用启动成功');
+    });
+
+    // 监听 DOM 加载完成
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function() {
+        console.log('[初始化] DOM 加载完成');
+      });
+    } else {
+      console.log('[初始化] DOM 已加载完成');
+    }
+
+    // 监听页面加载完成
+    window.addEventListener('load', function() {
+      console.log('[初始化] 页面加载完成');
+    });
+    
     function sendtoFChat(message) {
+      console.log('[FChat] 发送消息:', message);
       if (window.flutter_inappwebview) {
         window.flutter_inappwebview.callHandler("FChatAPI", message).then((response) => {
           flutterAppResponseHandler(response);
         });
       } else {
+        console.warn('[FChat] flutter_inappwebview 不可用');
         flutterAppResponseHandler("err");
       }
     }
 
     function flutterAppResponseHandler(response) {
+      console.log('[FChat] 收到响应:', response);
       window.postMessage({
         type: "flutterResponse",
         data: response,
@@ -314,20 +377,21 @@
     }
 
     function onAppCallback(result) {
-     Debug.log('onAppCallback: $result');
+      console.log('[App] onAppCallback:', result);
     }
 
     window.onAppMessage = function (msg) {
-  
+      console.log('[App] 收到消息:', msg);
       try {
         const event = new CustomEvent("FChatMessage", { detail: msg });
         window.dispatchEvent(event);
       } catch (e) {
-        console.error("onAppMessage error:", e);
+        console.error("[App] onAppMessage error:", e);
       }
     };
 
     function reverseGeocode(lat, lng, callback) {
+      console.log('[Geocode] 开始反向地理编码:', lat, lng);
       if (!window.fetch) {
         callback("您的浏览器不支持此功能");
         return;
@@ -337,25 +401,28 @@
         .then(response => response.json())
         .then(data => {
           if (data && data.display_name) {
+            console.log('[Geocode] 解析成功:', data.display_name);
             callback(data.display_name);
           } else {
+            console.warn('[Geocode] 无法解析地址');
             callback("无法解析地址");
           }
         })
         .catch(error => {
+          console.error('[Geocode] 获取地址失败:', error);
           callback("获取地址失败: " + error.message);
         });
     }
-</script>
 
-<!-- 调试工具 -->
-<script src="https://cdn.bootcdn.net/ajax/libs/eruda/3.4.3/eruda.min.js"></script>
-<script>
-  // 按照官方推荐方式：禁用 Shadow DOM 以便自定义样式
-  eruda.init({
-    useShadowDom: false
-  });
-</script>
+    console.log('[初始化] 应用脚本加载完成');
+  </script>
+
+  <!-- 调试工具 -->
+  <script src="https://cdn.bootcdn.net/ajax/libs/eruda/3.4.3/eruda.min.js"></script>
+  <script>
+    // 按照官方推荐方式：禁用 Shadow DOM 以便自定义样式
+    eruda.init();
+  </script>
 
 </body>
 
