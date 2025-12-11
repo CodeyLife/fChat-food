@@ -111,7 +111,7 @@ class UnifiedOrderService {
                   }
                 }
                 //检查订单是否处于待支付，并且已经支付成功
-                if(order.status == OrderStatus.pending && order.paymentId != null && order.paymentId!.isNotEmpty){
+                if(order.status == OrderStatus.pending && isAdmin && order.paymentId != null && order.paymentId!.isNotEmpty){
                   var verifyPayObj = await OrderMonitorService.instance.verifyPaymentId(order.paymentId!);
                   if(verifyPayObj.ispay){
                     //订单已经支付成功
@@ -157,7 +157,8 @@ class UnifiedOrderService {
                   // 已完成的订单不添加到orders中
                 } else {
                   //如果订单号为空，则不添加到orders中
-                  if(order.orderNumber.isEmpty){
+                  if(order.orderNumber.isEmpty && order.userId != UserService.instance.currentUser!.userId){
+                    Debug.log("订单号为空，且用户不是当前用户，不添加到orders中: ${order.orderNumber} ${order.userId} ${UserService.instance.currentUser!.userId}");
                      continue;
                   }
                   // 只有正在进行的订单才添加到orders中
