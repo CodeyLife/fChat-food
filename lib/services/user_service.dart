@@ -40,7 +40,7 @@ class UserService extends GetxController {
   
   /// 获取当前用户
   UserInfo? get currentUser => _currentUser.value;
-  late final ChatUserobj chatUserobj;
+  ChatUserobj? chatUserobj;
 
   @override
   void onInit() {
@@ -129,8 +129,10 @@ class UserService extends GetxController {
       final completer = Completer<UserInfo?>();
       bool isCompleted = false;
 
+
       // 从app获取用户id
-      FChatUserInfo().getUserInfo((user) {
+      try {
+        FChatUserInfo().getUserInfo((user) {
         if (isCompleted) return; // 防止重复处理
         isCompleted = true;
         chatUserobj = user;
@@ -186,6 +188,16 @@ class UserService extends GetxController {
           
         }
       });
+      } catch (e) {
+        // 捕获 getUserInfo 调用时可能出现的异常
+        Debug.logError('调用 getUserInfo 失败: $e');
+        if (!isCompleted) {
+          isCompleted = true;
+          if (!completer.isCompleted) {
+            completer.complete(null);
+          }
+        }
+      }
       
       // 设置超时处理
       Timer(const Duration(seconds: 10), () {
@@ -623,10 +635,10 @@ class UserService extends GetxController {
     IconData? defaultIcon,
     Color? defaultIconColor,
   }) {
-    // 如果有 chatUserobj.chatuser，使用 getavatar 方法
-    if (chatUserobj.chatuser != null && chatUserobj.chatuser!.avatarURL != null && chatUserobj.chatuser!.avatarURL!.isNotEmpty) {
-      Debug.log("api用户头像 ${chatUserobj.chatuser!.base64}");
-      var widget = chatUserobj.chatuser!.getavatar(
+    // 检查 chatUserobj 是否已初始化
+    if (chatUserobj != null && chatUserobj!.chatuser != null && chatUserobj!.chatuser!.avatarURL != null && chatUserobj!.chatuser!.avatarURL!.isNotEmpty) {
+      Debug.log("api用户头像 ${chatUserobj!.chatuser!.base64}");
+      var widget = chatUserobj!.chatuser!.getavatar(
         width: width,
         height: height,
         radius: radius,

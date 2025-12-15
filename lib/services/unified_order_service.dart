@@ -77,6 +77,7 @@ class UnifiedOrderService {
   // 打印队列相关变量
   static final Queue<Order> _printQueue = Queue<Order>();
   static bool _isPrinting = false;
+  static bool _isProcessingNewOrders = false;
   static final Map<String, List<Completer<void>>> _printCompleters = {};
 
   /// 初始化服务（现在由OrderMonitorService负责）
@@ -184,6 +185,32 @@ class UnifiedOrderService {
     }
   }
 
+  static Future<void> loadNewOrders() async {
+    while(_isProcessingNewOrders){
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    Debug.log('开始处理新订单');
+    _isProcessingNewOrders = true;
+    try{
+    final objs = await FileUtils.readDirectory(AppConstants.tmporder);
+    for(Map<String, dynamic> file in objs){
+      final order = Order.fromJson(file);
+      if(order.status == OrderStatus.pending){
+         //订单是待支付状态，验证支付结果
+           var verifyPayObj = await OrderMonitorService.instance.verifyPaymentId(order.paymentId!);
+                  if(verifyPayObj.ispay){
+                    //订单已经支付成功
+                    order.status = OrderStatus.paid;
+                    order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
+                    OrderMonitorService.instance.updateOrder(order);
+                    pushPrintOrder(order);
+                    await (FileUtils.updateOrderInTemp(order)); //更新订单文件
+                  }
+      }
+    }
+    }catch(_){} 
+    _isProcessingNewOrders = false;
+  }
   static Future<List<Order>> simpleLoadAllOrders() async {
     final objs = await FileUtils.readDirectory(AppConstants.tmporder);
     final List<Order> orders = [];
@@ -457,12 +484,29 @@ class UnifiedOrderService {
       // 先解码Base64
       String decodedData = JsonUtil.getbase64(data);
       if(isPresetUser){
-        //是服务号id 判断这个json是不是订单json
+        //是服务号id
+        //判断这个数据是不是NewOrder
+        if(decodedData.startsWith('New orders'))
+        {
+           unawaited(loadNewOrders());
+           return;
+        }
+        // 判断这个json是不是订单json
         try
         {
           Map<String, dynamic> orderData = JsonUtil.strtoMap(decodedData);
           var order = Order.fromJson(orderData);
           if(order.id.isNotEmpty){  
+            await Future.delayed(const Duration(milliseconds: 300));
+            //先判断有没有处理过这个订单
+            while(_isProcessingNewOrders){
+              await Future.delayed(const Duration(milliseconds: 100));
+            }
+           var tempOrder = OrderMonitorService.instance.orders.firstWhereOrNull((o) => o.id == order.id);
+           if(tempOrder != null && tempOrder.status == OrderStatus.paid){
+            Debug.log('订单${order.orderNumber}已经处理过，不重复处理');
+            return;
+           }
            try {
                 order.status = OrderStatus.paid;
                 order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
