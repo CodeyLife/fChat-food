@@ -80,21 +80,24 @@ class Debug {
 
   /// 记录错误日志
   static void logError(String operation, [dynamic error]) {
-    if(kDebugMode){
+    if(kDebugMode || kProfileMode){
+      // ignore: avoid_print
       print('❌  [$operation]: ${_getErrorMessage(error)}');
     }
   }
 
   /// 记录信息日志
   static void log(String message) {
-    if(kDebugMode){
+    if(kDebugMode || kProfileMode){
+      // ignore: avoid_print
       print('ℹ️  $message');
     }
   }
 
   /// 记录警告日志
   static void logWarning(String message) {
-    if(kDebugMode){
+    if(kDebugMode || kProfileMode){
+      // ignore: avoid_print
       print('⚠️  $message');
     }
   }

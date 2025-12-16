@@ -79,6 +79,8 @@ class UnifiedOrderService {
   static bool _isPrinting = false;
   static bool _isProcessingNewOrders = false;
   static final Map<String, List<Completer<void>>> _printCompleters = {};
+  // 已打印订单ID集合（用于防止重复打印）
+  static final Set<String> _printedOrderIds = <String>{};
 
   /// 初始化服务（现在由OrderMonitorService负责）
   static Future<void> initialize() async {
@@ -88,6 +90,9 @@ class UnifiedOrderService {
 
   /// 加载所有订单（从临时订单目录）并返回订单列表
   static Future<List<Order>> loadAllOrders() async {
+     while(_isProcessingNewOrders){
+           await Future.delayed(const Duration(milliseconds: 100));
+    }
     _isRefreshing = true;
     try {
       final List<Order> orders = [];
@@ -112,7 +117,7 @@ class UnifiedOrderService {
                   }
                 }
                 //检查订单是否处于待支付，并且已经支付成功
-                if(order.status == OrderStatus.pending && isAdmin && order.paymentId != null && order.paymentId!.isNotEmpty){
+                if(order.status == OrderStatus.pending && UserService.instance.isPresetUser && order.paymentId != null && order.paymentId!.isNotEmpty){
                   var verifyPayObj = await OrderMonitorService.instance.verifyPaymentId(order.paymentId!);
                   if(verifyPayObj.ispay){
                     //订单已经支付成功
@@ -204,7 +209,7 @@ class UnifiedOrderService {
                     order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
                     OrderMonitorService.instance.updateOrder(order);
                     pushPrintOrder(order);
-                    await (FileUtils.updateOrderInTemp(order)); //更新订单文件
+                    await FileUtils.updateOrderInTemp(order); //更新订单文件
                   }
       }
     }
@@ -325,6 +330,16 @@ class UnifiedOrderService {
 
   //推送打印订单
   static Future<void> pushPrintOrder(Order order) async {
+    // 检查订单是否已经打印过
+    if (_printedOrderIds.contains(order.id)) {
+      Debug.log('订单已打印过，跳过重复打印: ${order.orderNumber} (ID: ${order.id})');
+      return;
+    }
+    
+    // 将订单ID添加到已打印集合中（在开始打印前添加，防止并发重复打印）
+    _printedOrderIds.add(order.id);
+    Debug.log('订单ID已添加到已打印集合: ${order.orderNumber} (ID: ${order.id})');
+    
     // 创建 Completer 用于等待该订单打印完成
     final completer = Completer<void>();
     
@@ -492,37 +507,37 @@ class UnifiedOrderService {
            return;
         }
         // 判断这个json是不是订单json
-        try
-        {
-          Map<String, dynamic> orderData = JsonUtil.strtoMap(decodedData);
-          var order = Order.fromJson(orderData);
-          if(order.id.isNotEmpty){  
-            await Future.delayed(const Duration(milliseconds: 300));
-            //先判断有没有处理过这个订单
-            while(_isProcessingNewOrders){
-              await Future.delayed(const Duration(milliseconds: 100));
-            }
-           var tempOrder = OrderMonitorService.instance.orders.firstWhereOrNull((o) => o.id == order.id);
-           if(tempOrder != null && tempOrder.status == OrderStatus.paid){
-            Debug.log('订单${order.orderNumber}已经处理过，不重复处理');
-            return;
-           }
-           try {
-                order.status = OrderStatus.paid;
-                order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
-                OrderMonitorService.instance.updateOrder(order);
-                Debug.log("服务器解析支付push的订单数据");
-                await FileUtils.updateOrderInTemp(order);
-                pushPrintOrder(order);
-              } catch (e) {
-                Debug.logError('处理订单失败', e);
-              }
-          return;
-          }
+      //   try
+      //   {
+      //     Map<String, dynamic> orderData = JsonUtil.strtoMap(decodedData);
+      //     var order = Order.fromJson(orderData);
+      //     if(order.id.isNotEmpty){  
+      //       await Future.delayed(const Duration(milliseconds: 300));
+      //       //先判断有没有处理过这个订单
+      //       while(_isProcessingNewOrders){
+      //         await Future.delayed(const Duration(milliseconds: 100));
+      //       }
+      //      var tempOrder = OrderMonitorService.instance.orders.firstWhereOrNull((o) => o.id == order.id);
+      //      if(tempOrder != null && tempOrder.status == OrderStatus.paid){
+      //       Debug.log('订单${order.orderNumber}已经处理过，不重复处理');
+      //       return;
+      //      }
+      //      try {
+      //           order.status = OrderStatus.paid;
+      //           order.orderNumber = await OrderCounterService.instance.getNextOrderNumber();
+      //           OrderMonitorService.instance.updateOrder(order);
+      //           Debug.log("服务器解析支付push的订单数据");
+      //           await FileUtils.updateOrderInTemp(order);
+      //           pushPrintOrder(order);
+      //         } catch (e) {
+      //           Debug.logError('处理订单失败', e);
+      //         }
+      //     return;
+      //     }
 
-        }catch(_){
+      //   }catch(_){
         
-        }
+      //   }
       }
       // 使用正则表达式提取 data 字段后的 JSON 对象
       // 匹配 "data" 后的第一个 { 到对应的 }（支持嵌套）
@@ -568,96 +583,17 @@ class UnifiedOrderService {
         }
       }
       
-      // 如果通过正则表达式提取失败，尝试完整解析方式
-      if (orderPushData == null) {
-        Debug.log('使用完整解析方式');
-        // 先解析为 PushOrderObj 的 JSON
-        Map<String, dynamic> pushOrderObjJson;
-        try {
-          pushOrderObjJson = jsonDecode(decodedData) as Map<String, dynamic>;
-          Debug.log('PushOrderObj JSON 解析成功，字段: ${pushOrderObjJson.keys.toList()}');
-        } catch (e) {
-          Debug.logError('解析 PushOrderObj JSON 失败', e);
-          Debug.log('尝试解析的 JSON 字符串: $decodedData');
-          OrderMonitorService.instance.initOrders();
-          return;
-        }
-        
-        // 从 PushOrderObj 中取出 data 字段
-        dynamic dataValue = pushOrderObjJson['data'];
-        
-        if (dataValue == null) {
-          Debug.logError('PushOrderObj 中未找到 data 字段', null);
-          Debug.log('PushOrderObj JSON 的所有字段: ${pushOrderObjJson.keys.toList()}');
-              OrderMonitorService.instance.initOrders();
-          return;
-        }
-        
-        String finalDataString;
-        
-        // 处理 data 字段可能是字符串或对象的情况
-        if (dataValue is String) {
-          // 如果是字符串，可能是 JSON 字符串或 Base64 编码的字符串
-          Debug.log('data 字段是字符串类型: $dataValue');
-          try {
-            // 先尝试直接解析为 JSON，验证是否是有效的 JSON 字符串
-            jsonDecode(dataValue);
-            // 如果成功，说明是 JSON 字符串，直接使用
-            finalDataString = dataValue;
-          } catch (e) {
-            // 如果解析失败，尝试 Base64 解码
-            try {
-              finalDataString = JsonUtil.getbase64(dataValue);
-              Debug.log('data 字段 Base64 解码后: $finalDataString');
-            } catch (e2) {
-              Debug.logError('data 字段既不是有效的 JSON 字符串也不是 Base64', e2);
-                  OrderMonitorService.instance.initOrders();
-              return;
-            }
-          }
-        } else if (dataValue is Map) {
-          // 如果 data 字段已经是解析后的对象，直接转换为 JSON 字符串
-          Debug.log('data 字段是对象类型，转换为 JSON 字符串');
-          finalDataString = jsonEncode(dataValue);
-        } else {
-          Debug.logError('data 字段类型不支持: ${dataValue.runtimeType}', null);
-              OrderMonitorService.instance.initOrders();
-          return;
-        }
-        
-        Debug.log('最终用于解析的 data 字符串: $finalDataString');
-        
-        // 解析 data 字段为 OrderPushData
-        try {
-          orderPushData = OrderPushData.fromJsonString(finalDataString);
-        } catch (e) {
-          Debug.logError('解析 OrderPushData 失败', e);
-              OrderMonitorService.instance.initOrders();
-          return;
-        }
+      if(orderPushData == null){
+        Debug.log('解析push消息失败');
+        return;
       }
+
       
       // 使用局部变量，此时 orderPushData 已经保证不为 null（如果为 null 会在上面 return）
       final finalOrderPushData = orderPushData;
       
       if(finalOrderPushData.type == OrderPushType.newOrder){
-        if(isPresetUser){
-           return;
-        }
-        Order? order = await Order.readOrderWithOrderId(finalOrderPushData.orderId);
-        if(order != null){
-            OrderMonitorService.instance.updateOrder(order);
-            OrderMonitorService.instance.setStateChange(true);
-          //   if(order.isPrinted == false){
-          //     pushPrintOrder(order);
-          //    Voicespeark().speark(LocationUtils.translate('you have a new order,please check it'), (value) {
-          //    // 处理语音播放的回调
-          //    Debug.log('语音播放状态: $value');
-          //  });
-          //   }
-        }else{
-          Debug.log("订单${finalOrderPushData.orderId}无法读取，不触发打印了");
-        }
+        return;
        }else if(finalOrderPushData.type == OrderPushType.statusUpdate){
         Order? order = await Order.readOrderWithOrderId(finalOrderPushData.orderId);
         

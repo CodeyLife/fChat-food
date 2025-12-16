@@ -80,6 +80,7 @@ class UserService extends GetxController {
     return  _currentUser.value!.permissionLevel.level == PermissionLevel.superAdmin.level || _currentUser.value!.userId == ConfigService.presetUserId;
   }
 
+  bool get isPresetUser => _currentUser.value?.userId == ConfigService.presetUserId;
   /// 检查当前用户是否为管理员
   bool get isAdmin => _currentUser.value?.isAdmin() ?? false;
 
